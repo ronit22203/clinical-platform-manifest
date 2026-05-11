@@ -19,14 +19,10 @@ Each ADR documents a key design choice, the context and constraints that drove i
 
 ## ADR-002: Dual agent runtime (LangGraph ReAct + Temporal Workflow)
 
-**Status:** Accepted  
+**Status:** SUPERSEDED by ADR-008 (2026-05-10, commit `4c1bb17e`)  
 **Context:** Interactive clinical queries need low-latency streaming responses. Regulated research workflows need fault-tolerant, replayable, auditable execution with an optional Human-in-the-Loop gate.  
-**Decision:** Expose both runtimes from the same tool registry and YAML configuration. The runtime choice is a single YAML flag. LangGraph handles interactive sessions; Temporal handles durable, auditable workflows.  
-**Rejected alternatives:**
-- LangGraph only: no durable checkpoint, mid-run worker crash loses execution state
-- Temporal only: too much overhead for simple interactive queries, no streaming
-- Celery: no LLM-native tool-calling support, no HITL primitives  
-**Trade-off:** Two orchestration runtimes with different failure modes. Temporal requires PostgreSQL to be running (see F-061, F-062).
+**Decision (original):** Expose both runtimes from the same tool registry and YAML configuration. The runtime choice is a single YAML flag. LangGraph handles interactive sessions; Temporal handles durable, auditable workflows.  
+**Why it was superseded:** In production testing with Qwen3-8B, LangGraph ReAct answered from parametric memory and bypassed tool calls entirely. Tool execution was advisory; the framework offered no mechanism to enforce it. Temporal and the full dual-runtime infrastructure were removed. See ADR-008 for the replacement decision.
 
 ---
 
@@ -108,3 +104,39 @@ Each ADR documents a key design choice, the context and constraints that drove i
 | RAGAS evaluation framework | Continuous synthesis quality measurement | Medium |
 | Additional data sources | PubMed Central, Europe PMC | Medium |
 | Streaming HITL via WebSocket | Replace CLI approval with browser-based review | Medium |
+
+---
+
+## ADR-008: Replace LangGraph ReAct with deterministic two-phase pipeline
+
+**Status:** Accepted  
+**Commit:** `4c1bb17e` (2026-05-10), branch `rebuild/agent-tool-routing`  
+**Supersedes:** ADR-002
+
+**Context:** Production testing with Qwen3-8B revealed that the LangGraph ReAct agent answered from parametric memory and bypassed retrieval tools entirely. The framework gave the model the option to call tools but provided no mechanism to enforce it. On clinical queries where the model had high-confidence parametric answers, tools were skipped. For a RAG system this is a correctness failure, not a latency trade-off.
+
+**What was removed:**
+- LangGraph ReAct agent
+- Temporal workflow engine and all activity definitions
+- MCP filesystem tool manager
+- FastAPI server (`server.py`)
+- `schemas/`, `config_loader.py`, `registry.py`, `implementations/`
+- `app.yaml` reduced from 280 lines to 35 lines
+
+**Decision:** Replace with a two-phase pipeline in `agent.py`:
+- Phase 1: mandatory tool execution - retrieval tools run unconditionally before any synthesis. The model cannot skip them.
+- Phase 2: synthesis over grounded evidence only. A hardcoded no-evidence response is returned if phase 1 yields nothing.
+
+Interface exposed as `run()`, `stream()`, `run_json()` via a Click CLI (`cli.py`). Configuration is a flat Pydantic model (`config.py`). Entry point is `make serve` (interactive CLI) or `make reasoning-run-query QUERY="..."`.
+
+**Rejected alternatives:**
+- Prompt-engineering LangGraph to force tool use: unreliable; model compliance varies with context length and model version
+- Structured output constraints on LangGraph: still advisory, model can return a final answer without tool calls
+- Temporal with enforced tool fan-out: Temporal was removed because its operational overhead was not justified for the current single-user use case (see F-061, F-062)
+
+**Trade-off:** The two-phase pipeline is less flexible than an autonomous agent loop. Multi-step tool chaining based on intermediate results is no longer possible without explicit code changes. This is accepted: predictable retrieval-grounded answers are more important than agentic flexibility for clinical queries.
+
+**Impact on run.md:**
+- `make serve` now starts the interactive reasoning CLI, not a FastAPI server
+- `make reasoning-serve-api` and `make ui-*` targets print informational messages only (server and UI not active in current build)
+- `python -m src.temporal.worker` is no longer required or available

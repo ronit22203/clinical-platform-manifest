@@ -82,16 +82,18 @@ Supported SOURCE values: `medrxiv`, `biorxiv`, `pubmed`, `clinicaltrials`
 | `make reasoning-install` | Install reasoning module deps |
 | `make reasoning-run` | Start interactive CLI agent |
 | `make reasoning-run-query QUERY="..."` | Single-shot query |
-| `make reasoning-serve-api` | Start FastAPI server on port 8000 |
-| `make reasoning-test` | Run reasoning tests |
+| `make serve` | Start reasoning interactive CLI (as of 2026-05-10; replaces FastAPI server) |
+| `make reasoning-run-query QUERY="..."` | Single-shot query via two-phase pipeline |
+| `make reasoning-serve-api` | Prints informational message only -- FastAPI server not active in current build (see ADR-008) |
+| `make reasoning-test` | Run reasoning tests (13 agent tests + 12 GraphRAG tests) |
 
 ### UI
 
 | Command | What it does |
 |---|---|
 | `make ui-install` | Install UI deps |
-| `make ui-dev` | Start UI dev server |
-| `make ui-build` | Build UI for production |
+| `make ui-dev` | Prints informational message only -- UI not active in current build (see ADR-008) |
+| `make ui-build` | Prints informational message only -- UI not active in current build |
 
 ### Benchmarking
 
@@ -103,15 +105,9 @@ Supported SOURCE values: `medrxiv`, `biorxiv`, `pubmed`, `clinicaltrials`
 
 ---
 
-## Temporal Worker (Durable Workflows)
+## Temporal Worker
 
-Run the background worker for auditable, fault-tolerant workflow execution:
-
-```bash
-python -m src.temporal.worker
-```
-
-The worker must be running for `runtime: temporal` agent queries to execute. If the worker crashes mid-run, the workflow resumes from the last completed activity checkpoint on restart.
+Temporal was removed in commit `4c1bb17e` (2026-05-10). The `python -m src.temporal.worker` command is no longer available. See ADR-008.
 
 ---
 
