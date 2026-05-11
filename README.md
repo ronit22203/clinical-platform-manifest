@@ -1,6 +1,8 @@
 # Clinical Intelligence Platform: Manifest Repository
 
-This repository is the engineering manifest for a local-first, deterministic clinical intelligence platform built across four months of production development and validation. It is a reference companion to the active codebase at https://github.com/ronit22203/clinical-trials-matching-platform.
+> Watch the demo video (Hybrid+Vector Retrieval with Byte level provenance at <https://www.ronitsaxena.in/projects/clinical-trial-matching-api/>)
+
+This repository is the engineering manifest for a local-first, deterministic clinical intelligence platform built across four months of production development and validation. It is a reference companion to the active codebase at <https://github.com/ronit22203/clinical-trials-matching-platform>.
 
 The manifest answers four questions a reader should be able to resolve in under 10 minutes:
 
@@ -63,4 +65,4 @@ The following files are internal working documents and are not part of the publi
 
 ## Active Codebase
 
-https://github.com/ronit22203/clinical-trials-matching-platform
+<https://github.com/ronit22203/clinical-trials-matching-platform>
