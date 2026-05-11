@@ -53,15 +53,7 @@ Three production-verified results define the platform:
 
 ## Internal Reference Files
 
-The following files are internal working documents and are not part of the public-facing manifest:
-
-| File | Contents |
-|---|---|
-| weight_0_canonical_code_docs.md | Canonical code documentation, module notes, command surface |
-| weight_1_chat_deepseek.md | Failure register sourced from build session histories |
-| weight_2_portfolio_docs_live_production.md | Full production engineering report with verified benchmarks |
-
----
+The following directory contains internal working documents and are not part of the public-facing manifest: legacy_chats/
 
 ## Active Codebase
 
