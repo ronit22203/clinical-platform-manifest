@@ -90,3 +90,162 @@ These are open, not yet resolved. They are distinct from the above incidents, wh
 | Full Docker stack is heavy for local dev | Temporal + PostgreSQL + Qdrant + Neo4j together consume significant local resources. A lightweight local profile (Qdrant-only, no Temporal/Neo4j) that still runs full ingestion is planned. |
 | UI is functional but not feature-complete | Supports upload, query, evidence display, verification. Does not support multi-user auth, saved queries, or FHIR integration. |
 | Comparative query retrieval regressed with reranker | Per-category breakdown shows -16.7 R@5 for comparative queries. Root cause under investigation. |
+
+## Failure Register – Entries F-063 to F-067
+
+Below are the five new failures, documented from the recent integration work and RunPod deployment attempts.
+
+---
+
+### F-063: Ingestion API port mismatch (8000 vs 8001)
+
+**Context:** React UI attempted to call ingestion endpoints on port 8000 (reasoning API) instead of 8001.
+
+**Failure Evidence:**
+
+- `POST http://localhost:8000/api/ingest → 404`
+- SSE connection to `http://localhost:8000/api/ingest/stream` never opened
+
+**Root Cause:** `dev` target launches reasoning API on :8000 and ingestion API on :8001, but React `.env` pointed all API calls to a single base URL.
+
+**Fix:**
+
+- Split API clients: `REACT_APP_REASONING_API=http://localhost:8000`, `REACT_APP_INGESTION_API=http://localhost:8001`
+- Update fetch calls to use correct client per endpoint
+
+**Prevention:** `validate` target now checks both ports. Add to CI.
+
+---
+
+### F-064: Wrong endpoint for trial matching (`/api/query` vs `/api/match`)
+
+**Context:** React UI called `POST /api/query` with JSON body; actual endpoint is `POST /api/match` with form data.
+
+**Failure Evidence:**
+
+- `POST /api/query → 404`
+- `POST /api/match` with `{"query": "..."}` → 422 (expects form data, not JSON)
+
+**Root Cause:** FastAPI `server.py` defines `async def match(request: Request)` that reads form data (`await request.form()`), not JSON body. React sent `Content-Type: application/json`.
+
+**Fix:**
+
+- Change FastAPI to accept JSON via Pydantic `MatchRequest` model
+- Or change React to send `FormData`
+
+**Decision:** Use JSON (cleaner). Add Pydantic model.
+
+**Prevention:** OpenAPI schema generation + React client types.
+
+---
+
+### F-065: SSE event parser assumed `event:` prefix, but backend sends raw `data:` lines
+
+**Context:** React UI used `EventSource` which routes on `event:` field. Ingestion API emits `data: {"stage": "ocr", "status": "running"}` with no `event:` line.
+
+**Failure Evidence:**
+
+- `EventSource` `currentEvent` always empty → all events routed to default handler
+- No per‑stage UI updates; only "done" showed
+
+**Root Cause:** `EventSource` spec expects:
+
+```
+event: stage_update
+data: {"stage": "ocr", "status": "done"}
+```
+
+But backend sent only `data:` lines.
+
+**Fix:** Backend: add `event: stage_update` before each `data:` line. Or frontend: ignore `currentEvent` and treat all events as stage updates.
+
+**Decision:** Fix backend to be spec‑compliant.
+
+**Prevention:** Unit test for SSE event shape. Postman collection for manual verification.
+
+---
+
+### F-066: `add-apt-repository` crashed due to Python apt_pkg binding mismatch
+
+**Context:** Running `pre_requisites.sh` on RunPod Ubuntu 22.04 container to upgrade to Python 3.12.
+
+**Failure Evidence:**
+
+```
+Traceback (most recent call last):
+  File "/usr/bin/add-apt-repository", line 5, in <module>
+    import apt_pkg
+ModuleNotFoundError: No module named 'apt_pkg'
+```
+
+**Root Cause:** `add-apt-repository` is a Python script that depends on `python3-apt` – native C++ bindings compiled for the system's default Python version (3.10). Partial system updates broke symlinks.
+
+**Fix:**
+
+- Use `apt install python3.12 python3.12-venv` directly (no deadsnakes PPA)
+- Or use RunPod's built‑in PyTorch image (already has Python 3.11+)
+- Or skip `pre_requisites.sh` entirely – pre‑bake an image
+
+**Prevention:** Test `pre_requisites.sh` on a fresh Ubuntu container before remote runs.
+
+---
+
+### F-067: Docker not found in RunPod secure cloud pod
+
+**Context:** `make bootstrap` validation on RunPod Secure Cloud Pod.
+
+**Failure Evidence:**
+
+```
+Checking dependencies…
+✗  Docker not found. Install from https://docs.docker.com/get-docker/
+make: *** [Makefile:97: bootstrap] Error 1
+```
+
+**Root Cause:** RunPod Secure Cloud Pods are minimal execution containers – they do not ship with a nested Docker engine. The monorepo expects `docker-compose` to run Neo4j and Qdrant as child containers.
+
+**Fix (choose one):**
+
+1. Use RunPod's "Docker" template (has Docker pre‑installed)
+2. Run services natively: install Neo4j + Qdrant directly on the host (no Docker)
+3. Modify the platform to use Podman (daemonless, works in containers)
+4. Pre‑bake a custom RunPod image with Docker + your repo
+
+**Prevention:** Always check `docker --version` first. Use RunPod community images labelled with `docker` or `podman`. For pure inference (no Neo4j/Qdrant), skip Docker entirely.
+
+---
+
+### F-068: Spot instance root filesystem (20GB) too small for full GPU dependency install
+
+**Context:** Attempting production startup on a spot instance with 20GB root partition.
+
+**Failure Evidence:**
+
+- `No space left on device` during `pip install torch`
+- `Disk quota exceeded` when installing `sglang[all]`
+- `data-ingestion` attempted to pull CUDA‑13 packages, exhausting remaining space
+
+**Root Cause:**
+Startup scripts assume large root volume or no heavy GPU libraries. On constrained instances, pip cache, temporary build directories, and venvs fill the root partition before services complete.
+
+**Fix:**
+
+- Redirect `PIP_CACHE_DIR` and `TMPDIR` to `/workspace`
+- Place venvs on `/workspace`
+- Split bootstrap into light (API) and heavy (inference/OCR) phases
+- Document minimum storage requirements (≥50GB root or dedicated `/workspace`)
+
+**Prevention:**
+Add `df -h` check to `make bootstrap`. Warn if <30GB free. Use `--target` to install only required subsets.
+
+### Summary of new failures
+
+| ID | Problem | Status |
+|----|---------|--------|
+| F-063 | Port mismatch (8000 vs 8001) | Fixed |
+| F-064 | Wrong endpoint `/api/query` | Fixed |
+| F-065 | SSE missing `event:` prefix | Fixed |
+| F-066 | `add-apt-repository` Python binding crash | Workaround: use PyTorch image |
+| F-067 | Docker missing in RunPod pod | Workaround: use native services or Docker template |
+
+All have corrective actions documented. The platform continues to harden.

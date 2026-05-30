@@ -111,8 +111,8 @@ Cohere Rerank API was the alternative. It is good but sends document content ext
 
 ## ADR-008: Nuke LangGraph, ship a deterministic two-phase pipeline
 
-**Status:** Accepted  
-**Commit:** `4c1bb17e` (2026-05-10), branch `rebuild/agent-tool-routing`  
+**Status:** Accepted
+**Commit:** `4c1bb17e` (2026-05-10), branch `rebuild/agent-tool-routing`
 **Supersedes:** ADR-002
 
 This was the biggest architectural reversal of the project.
@@ -131,3 +131,22 @@ While pulling out LangGraph I also removed Temporal. It was overkill for a singl
 What is left is `agent.py`, `config.py`, `cli.py`, `tools/graphrag.py`, and 25 tests. The entry point is `make serve` for the interactive CLI or `make reasoning-run-query QUERY="..."` for a single shot.
 
 The trade-off is that the pipeline is no longer autonomous. Multi-step tool chaining based on intermediate results requires explicit code changes now. That is fine. Predictable grounded answers matter more than agentic flexibility when the domain is clinical.
+
+---
+
+## ADR-009: Palantir Blueprint UI + Solarized Light 4-Pane HUD
+
+**Status:** Accepted
+
+The CLI works for development, but an ICU clinician under high cognitive load cannot chase text logs or jump between tabs. They need a high-density, low-latency cockpit. The UI is structured exactly like an IDE layout using Palantir's Blueprint UI components, bathed entirely in a Solarized Light color palette.
+
+The screen is pinned into a rigid 4-pane system to eliminate overlapping windows:
+
+- **Left Pane:** Three horizontal stripes tracking session history ("Previous Chats") and immediate clinical context ("Active Patient Record").
+- **Right Pane (Telemetry Layer):** A multi-modal drop zone streaming real-time Docker ingestion over Server-Sent Events (SSE). It visualizes the raw pipeline stages (Surya OCR → Presidio Redaction → Embeddings) via debug bounding boxes.
+- **Center-Bottom Pane (Provenance & Graph):** Shows byte-level source PDF coordinates alongside the interactive Neo4j entity-relationship diagram.
+- **Center-Top Pane (Synthesis Arena):** Renders the grounded output from the deterministic `agent.py` pipeline, wired to live external APIs like clinicaltrials.gov.
+
+Dark mode was rejected immediately. It fails under the brutal fluorescent glare of an ICU ward, causing severe pupillary fatigue. Solarized Light maintains sharp contrast without washing out. Standard whitespace-heavy SaaS design was also dropped — high-acuity environments require maximum information density. Blueprint UI handles complex, data-dense engineering layouts out of the box.
+
+The main trade-off is front-end state management. High-frequency SSE streaming of OCR bounding boxes and graph vectors can lock up the React main thread. The UI must aggressively throttle incoming telemetry frames to ensure typing and rendering stay smooth.
